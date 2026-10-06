@@ -354,27 +354,21 @@ class GenericThermostat(ClimateEntity, RestoreEntity):
         if (old_state := await self.async_get_last_state()) is not None:
             # If we have no initial temperature, restore
             if self._target_temp is None:
-                # If we have a previously saved temperature
-                if (
-                    old_state.attributes.get(
-                        ClimateEntityStateAttribute.TARGET_TEMPERATURE
-                    )
-                    is None
-                ):
+                saved_target = old_state.attributes.get(
+                    ClimateEntityStateAttribute.TARGET_TEMPERATURE
+                )
+                if saved_target is not None:
+                    self._target_temp = float(saved_target)
+                else:
                     if self.ac_mode:
                         self._target_temp = self.max_temp
                     else:
                         self._target_temp = self.min_temp
-                    _LOGGER.warning(
-                        "Undefined target temperature, falling back to %s",
-                        self._target_temp,
-                    )
-                else:
-                    self._target_temp = float(
-                        old_state.attributes[
-                            ClimateEntityStateAttribute.TARGET_TEMPERATURE
-                        ]
-                    )
+                    if old_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+                        _LOGGER.warning(
+                            "Undefined target temperature, falling back to %s",
+                            self._target_temp,
+                        )
             if (
                 self.preset_modes
                 and old_state.attributes.get(ClimateEntityStateAttribute.PRESET_MODE)
