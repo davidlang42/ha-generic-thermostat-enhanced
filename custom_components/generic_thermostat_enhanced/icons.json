@@ -1,4 +1,5 @@
 {
+  "icon": "mdi:thermostat",
   "services": {
     "reload": {
       "service": "mdi:reload"
