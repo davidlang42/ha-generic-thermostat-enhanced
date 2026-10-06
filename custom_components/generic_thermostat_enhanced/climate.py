@@ -324,7 +324,50 @@ class GenericThermostat(ClimateEntity, RestoreEntity):
         """Run when entity about to be added."""
         await super().async_added_to_hass()
 
-        # Add listener
+        # 1. ALWAYS attempt to restore saved state and extra data FIRST,
+        # before any availability checks or default assignments can interfere.
+        if (old_extra := await self.async_get_last_extra_data()) is not None and isinstance(
+            old_extra, ThermostatExtraStoredData
+        ):
+            if old_extra.target_temp is not None:
+                self._target_temp = float(old_extra.target_temp)
+
+        if self._target_temp is None and (old_state := await self.async_get_last_state()) is not None:
+            saved_target = old_state.attributes.get(
+                ClimateEntityStateAttribute.TARGET_TEMPERATURE
+            )
+            if saved_target is not None:
+                self._target_temp = float(saved_target)
+
+            if (
+                self.preset_modes
+                and old_state.attributes.get(ClimateEntityStateAttribute.PRESET_MODE)
+                in self.preset_modes
+            ):
+                self._attr_preset_mode = old_state.attributes.get(
+                    ClimateEntityStateAttribute.PRESET_MODE
+                )
+            if (
+                not self._hvac_mode
+                and old_state.state
+                and old_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+            ):
+                self._hvac_mode = HVACMode(old_state.state)
+
+        # 2. Fallback to absolute defaults ONLY if absolutely no history/extra data exists
+        if self._target_temp is None:
+            if self.ac_mode:
+                self._target_temp = self.max_temp
+            else:
+                self._target_temp = self.min_temp
+            _LOGGER.warning(
+                "No previously saved temperature, setting to %s", self._target_temp
+            )
+
+        if not self._hvac_mode:
+            self._hvac_mode = HVACMode.OFF
+
+        # Add listeners
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass, [self.sensor_entity_id], self._async_sensor_changed
@@ -367,50 +410,6 @@ class GenericThermostat(ClimateEntity, RestoreEntity):
             _async_startup()
         else:
             self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_START, _async_startup)
-
-        # 1. Try restoring via explicit extra stored data first
-        if (old_extra := await self.async_get_last_extra_data()) is not None and isinstance(
-            old_extra, ThermostatExtraStoredData
-        ):
-            if old_extra.target_temp is not None:
-                self._target_temp = float(old_extra.target_temp)
-
-        # 2. Fallback to standard attributes if extra data wasn't found
-        if self._target_temp is None and (old_state := await self.async_get_last_state()) is not None:
-            saved_target = old_state.attributes.get(
-                ClimateEntityStateAttribute.TARGET_TEMPERATURE
-            )
-            if saved_target is not None:
-                self._target_temp = float(saved_target)
-
-            if (
-                self.preset_modes
-                and old_state.attributes.get(ClimateEntityStateAttribute.PRESET_MODE)
-                in self.preset_modes
-            ):
-                self._attr_preset_mode = old_state.attributes.get(
-                    ClimateEntityStateAttribute.PRESET_MODE
-                )
-            if (
-                not self._hvac_mode
-                and old_state.state
-                and old_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN)
-            ):
-                self._hvac_mode = HVACMode(old_state.state)
-
-        # 3. No previous state, try and restore defaults
-        if self._target_temp is None:
-            if self.ac_mode:
-                self._target_temp = self.max_temp
-            else:
-                self._target_temp = self.min_temp
-            _LOGGER.warning(
-                "No previously saved temperature, setting to %s", self._target_temp
-            )
-
-        # Set default state to off
-        if not self._hvac_mode:
-            self._hvac_mode = HVACMode.OFF
 
     @property
     @override
