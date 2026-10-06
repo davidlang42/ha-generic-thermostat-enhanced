@@ -319,6 +319,14 @@ class GenericThermostat(ClimateEntity, RestoreEntity):
         """Return specific state data to be restored."""
         return ThermostatExtraStoredData(target_temp=self._target_temp)
 
+    @property
+    @override
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the optional state attributes."""
+        return {
+            "target_temp": self._target_temp,
+        }
+
     @override
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""
