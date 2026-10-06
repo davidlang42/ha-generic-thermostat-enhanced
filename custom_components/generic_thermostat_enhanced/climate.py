@@ -369,12 +369,11 @@ class GenericThermostat(ClimateEntity, RestoreEntity):
             self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_START, _async_startup)
 
         # 1. Try restoring via explicit extra stored data first
-        if (old_state_data := await self.async_get_last_state_data()) is not None:
-            if (
-                old_state_data.extra_data is not None
-                and (saved_target := old_state_data.extra_data.get("target_temp")) is not None
-            ):
-                self._target_temp = float(saved_target)
+        if (old_extra := await self.async_get_last_extra_data()) is not None and isinstance(
+            old_extra, ThermostatExtraStoredData
+        ):
+            if old_extra.target_temp is not None:
+                self._target_temp = float(old_extra.target_temp)
 
         # 2. Fallback to standard attributes if extra data wasn't found
         if self._target_temp is None and (old_state := await self.async_get_last_state()) is not None:
@@ -399,13 +398,12 @@ class GenericThermostat(ClimateEntity, RestoreEntity):
             ):
                 self._hvac_mode = HVACMode(old_state.state)
 
-        else:
-            # 3. No previous state, try and restore defaults
-            if self._target_temp is None:
-                if self.ac_mode:
-                    self._target_temp = self.max_temp
-                else:
-                    self._target_temp = self.min_temp
+        # 3. No previous state, try and restore defaults
+        if self._target_temp is None:
+            if self.ac_mode:
+                self._target_temp = self.max_temp
+            else:
+                self._target_temp = self.min_temp
             _LOGGER.warning(
                 "No previously saved temperature, setting to %s", self._target_temp
             )
