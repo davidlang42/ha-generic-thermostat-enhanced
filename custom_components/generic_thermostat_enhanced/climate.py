@@ -383,7 +383,11 @@ class GenericThermostat(ClimateEntity, RestoreEntity):
                 self._attr_preset_mode = old_state.attributes.get(
                     ClimateEntityStateAttribute.PRESET_MODE
                 )
-            if not self._hvac_mode and old_state.state:
+            if (
+                not self._hvac_mode
+                and old_state.state
+                and old_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+            ):
                 self._hvac_mode = HVACMode(old_state.state)
 
         else:
