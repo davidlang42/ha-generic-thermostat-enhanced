@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import partial
 import logging
@@ -63,7 +64,7 @@ from homeassistant.helpers.event import (
     async_track_time_interval,
 )
 from homeassistant.helpers.reload import async_setup_reload_service
-from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType, VolDictType
 from homeassistant.util import dt as dt_util
 
@@ -93,6 +94,17 @@ CONF_INITIAL_HVAC_MODE = "initial_hvac_mode"
 CONF_PRECISION = "precision"
 CONF_TARGET_TEMP = "target_temp"
 CONF_TEMP_STEP = "target_temp_step"
+
+
+@dataclass
+class ThermostatExtraStoredData(ExtraStoredData):
+    """Extra stored data for thermostat to persist target temperature."""
+
+    target_temp: float | None
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return a dictionary representation of the extra data."""
+        return {"target_temp": self.target_temp}
 
 
 PRESETS_SCHEMA: VolDictType = {
@@ -301,6 +313,12 @@ class GenericThermostat(ClimateEntity, RestoreEntity):
         self._presets = presets
         self._presets_inv = {v: k for k, v in presets.items()}
 
+    @property
+    @override
+    def extra_restore_state_data(self) -> ThermostatExtraStoredData:
+        """Return specific state data to be restored."""
+        return ThermostatExtraStoredData(target_temp=self._target_temp)
+
     @override
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""
@@ -350,25 +368,22 @@ class GenericThermostat(ClimateEntity, RestoreEntity):
         else:
             self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_START, _async_startup)
 
-        # Check If we have an old state
-        if (old_state := await self.async_get_last_state()) is not None:
-            # If we have no initial temperature, restore
-            if self._target_temp is None:
-                saved_target = old_state.attributes.get(
-                    ClimateEntityStateAttribute.TARGET_TEMPERATURE
-                )
-                if saved_target is not None:
-                    self._target_temp = float(saved_target)
-                else:
-                    if self.ac_mode:
-                        self._target_temp = self.max_temp
-                    else:
-                        self._target_temp = self.min_temp
-                    if old_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN):
-                        _LOGGER.warning(
-                            "Undefined target temperature, falling back to %s",
-                            self._target_temp,
-                        )
+        # 1. Try restoring via explicit extra stored data first
+        if (old_state_data := await self.async_get_last_state_data()) is not None:
+            if (
+                old_state_data.extra_data is not None
+                and (saved_target := old_state_data.extra_data.get("target_temp")) is not None
+            ):
+                self._target_temp = float(saved_target)
+
+        # 2. Fallback to standard attributes if extra data wasn't found
+        if self._target_temp is None and (old_state := await self.async_get_last_state()) is not None:
+            saved_target = old_state.attributes.get(
+                ClimateEntityStateAttribute.TARGET_TEMPERATURE
+            )
+            if saved_target is not None:
+                self._target_temp = float(saved_target)
+
             if (
                 self.preset_modes
                 and old_state.attributes.get(ClimateEntityStateAttribute.PRESET_MODE)
@@ -385,7 +400,7 @@ class GenericThermostat(ClimateEntity, RestoreEntity):
                 self._hvac_mode = HVACMode(old_state.state)
 
         else:
-            # No previous state, try and restore defaults
+            # 3. No previous state, try and restore defaults
             if self._target_temp is None:
                 if self.ac_mode:
                     self._target_temp = self.max_temp
