@@ -1,7 +1,4 @@
-"""Adds support for generic thermostat units.
-
-DEVELOPMENT OF THE GENERIC THERMOSTAT INTEGRATION IS FROZEN.
-"""
+"""Adds support for generic thermostat units."""
 
 import asyncio
 from collections.abc import Mapping
@@ -406,6 +403,18 @@ class GenericThermostat(ClimateEntity, RestoreEntity):
 
     @property
     @override
+    def available(self) -> bool:
+        """Return if entity is available."""
+        if not super().available:
+            return False
+        state = self.hass.states.get(self.heater_entity_id)
+        return state is not None and state.state not in (
+            STATE_UNAVAILABLE,
+            STATE_UNKNOWN,
+        )
+
+    @property
+    @override
     def precision(self) -> float:
         """Return the precision of the system."""
         if self._temp_precision is not None:
@@ -536,7 +545,21 @@ class GenericThermostat(ClimateEntity, RestoreEntity):
         old_state = event.data["old_state"]
         if new_state is None:
             return
-        if old_state is None:
+
+        old_unavailable = old_state is None or old_state.state in (
+            STATE_UNAVAILABLE,
+            STATE_UNKNOWN,
+        )
+        new_unavailable = new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+
+        if old_unavailable != new_unavailable:
+            self.async_write_ha_state()
+            return
+
+        if new_unavailable:
+            return
+
+        if old_state is None or old_unavailable:
             self.hass.async_create_task(
                 self._check_switch_initial_state(), eager_start=True
             )

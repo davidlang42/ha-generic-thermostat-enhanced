@@ -1,11 +1,12 @@
 {
-  "domain": "generic_thermostat",
-  "name": "Generic Thermostat",
-  "codeowners": [],
+  "domain": "generic_thermostat_enhanced",
+  "name": "Generic Thermostat Enhanced",
+  "codeowners": ["@davidlang42"],
   "config_flow": true,
   "dependencies": ["sensor", "switch"],
-  "documentation": "https://www.home-assistant.io/integrations/generic_thermostat",
+  "documentation": "https://github.com/davidlang42/ha-generic-thermostat-enhanced",
   "integration_type": "helper",
   "iot_class": "local_polling",
-  "quality_scale": "internal"
+  "quality_scale": "internal",
+  "version": "1.0.0"
 }

@@ -1,7 +1,4 @@
-"""The generic_thermostat component.
-
-DEVELOPMENT OF THE GENERIC THERMOSTAT INTEGRATION IS FROZEN.
-"""
+"""The generic_thermostat component."""
 
 import logging
 

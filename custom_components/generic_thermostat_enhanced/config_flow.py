@@ -1,7 +1,4 @@
-"""Config flow for Generic Thermostat.
-
-DEVELOPMENT OF THE GENERIC THERMOSTAT INTEGRATION IS FROZEN.
-"""
+"""Config flow for Generic Thermostat."""
 
 from collections.abc import Mapping
 from datetime import timedelta

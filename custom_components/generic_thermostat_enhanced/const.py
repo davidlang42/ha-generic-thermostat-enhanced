@@ -1,7 +1,4 @@
-"""Constants for the Generic Thermostat helper.
-
-DEVELOPMENT OF THE GENERIC THERMOSTAT INTEGRATION IS FROZEN.
-"""
+"""Constants for the Generic Thermostat helper."""
 
 from homeassistant.components.climate import (
     PRESET_ACTIVITY,
@@ -13,7 +10,7 @@ from homeassistant.components.climate import (
 )
 from homeassistant.const import Platform
 
-DOMAIN = "generic_thermostat"
+DOMAIN = "generic_thermostat_enhanced"
 
 PLATFORMS = [Platform.CLIMATE]
 
