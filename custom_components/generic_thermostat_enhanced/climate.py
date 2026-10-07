@@ -2,7 +2,6 @@
 
 import asyncio
 from collections.abc import Mapping
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import partial
 import logging
@@ -96,17 +95,6 @@ CONF_TARGET_TEMP = "target_temp"
 CONF_TEMP_STEP = "target_temp_step"
 
 
-@dataclass
-class ThermostatExtraStoredData(ExtraStoredData):
-    """Extra stored data for thermostat to persist target temperature."""
-
-    target_temp: float | None
-
-    def as_dict(self) -> dict[str, Any]:
-        """Return a dictionary representation of the extra data."""
-        return {"target_temp": self.target_temp}
-
-
 PRESETS_SCHEMA: VolDictType = {
     probatio.Optional(v): probatio.Coerce(float) for v in CONF_PRESETS.values()
 }
@@ -147,6 +135,18 @@ PLATFORM_SCHEMA_COMMON = probatio.Schema(
 
 
 PLATFORM_SCHEMA = CLIMATE_PLATFORM_SCHEMA.extend(PLATFORM_SCHEMA_COMMON.schema)
+
+
+class GenericThermostatExtraStoredData(ExtraStoredData):
+    """Object to hold extra stored data."""
+
+    def __init__(self, target_temp: float | None) -> None:
+        """Initialize the extra data."""
+        self.target_temp = target_temp
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return a dict representation of the extra data."""
+        return {"target_temp": self.target_temp}
 
 
 async def async_setup_entry(
@@ -315,67 +315,16 @@ class GenericThermostat(ClimateEntity, RestoreEntity):
 
     @property
     @override
-    def extra_restore_state_data(self) -> ThermostatExtraStoredData:
+    def extra_restore_state_data(self) -> GenericThermostatExtraStoredData:
         """Return specific state data to be restored."""
-        return ThermostatExtraStoredData(target_temp=self._target_temp)
-
-    @property
-    @override
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Return the optional state attributes."""
-        return {
-            "target_temp": self._target_temp,
-        }
+        return GenericThermostatExtraStoredData(self._target_temp)
 
     @override
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""
         await super().async_added_to_hass()
 
-        # 1. ALWAYS attempt to restore saved state and extra data FIRST,
-        # before any availability checks or default assignments can interfere.
-        if (old_extra := await self.async_get_last_extra_data()) is not None and isinstance(
-            old_extra, ThermostatExtraStoredData
-        ):
-            if old_extra.target_temp is not None:
-                self._target_temp = float(old_extra.target_temp)
-
-        if self._target_temp is None and (old_state := await self.async_get_last_state()) is not None:
-            saved_target = old_state.attributes.get(
-                ClimateEntityStateAttribute.TARGET_TEMPERATURE
-            )
-            if saved_target is not None:
-                self._target_temp = float(saved_target)
-
-            if (
-                self.preset_modes
-                and old_state.attributes.get(ClimateEntityStateAttribute.PRESET_MODE)
-                in self.preset_modes
-            ):
-                self._attr_preset_mode = old_state.attributes.get(
-                    ClimateEntityStateAttribute.PRESET_MODE
-                )
-            if (
-                not self._hvac_mode
-                and old_state.state
-                and old_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN)
-            ):
-                self._hvac_mode = HVACMode(old_state.state)
-
-        # 2. Fallback to absolute defaults ONLY if absolutely no history/extra data exists
-        if self._target_temp is None:
-            if self.ac_mode:
-                self._target_temp = self.max_temp
-            else:
-                self._target_temp = self.min_temp
-            _LOGGER.warning(
-                "No previously saved temperature, setting to %s", self._target_temp
-            )
-
-        if not self._hvac_mode:
-            self._hvac_mode = HVACMode.OFF
-
-        # Add listeners
+        # Add listener
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass, [self.sensor_entity_id], self._async_sensor_changed
@@ -418,6 +367,70 @@ class GenericThermostat(ClimateEntity, RestoreEntity):
             _async_startup()
         else:
             self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_START, _async_startup)
+
+        # Check If we have an old state and extra data
+        old_state = await self.async_get_last_state()
+        last_extra_data = await self.async_get_last_extra_data()
+
+        if old_state is not None:
+            # If we have no initial temperature, restore
+            if self._target_temp is None:
+                # 1. Try to restore target temp from explicit extra data
+                if last_extra_data is not None and "target_temp" in last_extra_data.as_dict():
+                    restored_temp = last_extra_data.as_dict()["target_temp"]
+                    if restored_temp is not None:
+                        self._target_temp = float(restored_temp)
+                
+                # 2. Fallback to older state attributes if extra data didn't capture it
+                if self._target_temp is None and old_state.attributes.get(
+                    ClimateEntityStateAttribute.TARGET_TEMPERATURE
+                ) is not None:
+                    self._target_temp = float(
+                        old_state.attributes[
+                            ClimateEntityStateAttribute.TARGET_TEMPERATURE
+                        ]
+                    )
+
+                # 3. Final fallback to minimum/maximum configurations
+                if self._target_temp is None:
+                    if self.ac_mode:
+                        self._target_temp = self.max_temp
+                    else:
+                        self._target_temp = self.min_temp
+                    _LOGGER.warning(
+                        "Undefined target temperature, falling back to %s",
+                        self._target_temp,
+                    )
+            
+            if (
+                self.preset_modes
+                and old_state.attributes.get(ClimateEntityStateAttribute.PRESET_MODE)
+                in self.preset_modes
+            ):
+                self._attr_preset_mode = old_state.attributes.get(
+                    ClimateEntityStateAttribute.PRESET_MODE
+                )
+            if (
+                not self._hvac_mode
+                and old_state.state
+                and old_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+            ):
+                self._hvac_mode = HVACMode(old_state.state)
+
+        else:
+            # No previous state, try and restore defaults
+            if self._target_temp is None:
+                if self.ac_mode:
+                    self._target_temp = self.max_temp
+                else:
+                    self._target_temp = self.min_temp
+            _LOGGER.warning(
+                "No previously saved temperature, setting to %s", self._target_temp
+            )
+
+        # Set default state to off
+        if not self._hvac_mode:
+            self._hvac_mode = HVACMode.OFF
 
     @property
     @override
